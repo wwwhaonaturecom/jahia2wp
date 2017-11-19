@@ -61,3 +61,8 @@ services:
         - "9090:9090"
     command:
         - "--config.file=/etc/prometheus/prometheus.yml"
+  
+  node-exporter:
+      image: prom/node-exporter:latest
+      ports:
+        - '9100:9100'
