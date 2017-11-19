@@ -81,3 +81,11 @@ services:
       - /var/run:/var/run:rw
       - /sys:/sys:ro
       - /var/lib/docker/:/var/lib/docker:ro
+
+  # Documentation: http://elk-docker.readthedocs.io/#running-with-docker-compose
+  elk:
+    image: sebp/elk
+    volumes:
+      - ./volumes/logstash/conf/:/etc/logstash/conf.d/
+    ports:
+      - "5601:5601"
