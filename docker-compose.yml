@@ -51,3 +51,13 @@ services:
       - .env:/srv/${WP_ENV}/jahia2wp/.env
     ports:
       - "${WP_PORT_SSHD}:22"
+
+    
+  prometheus:
+    image: prom/prometheus:latest
+    volumes:
+        - ./volumes/prometheus:/etc/prometheus
+    ports:
+        - "9090:9090"
+    command:
+        - "--config.file=/etc/prometheus/prometheus.yml"
