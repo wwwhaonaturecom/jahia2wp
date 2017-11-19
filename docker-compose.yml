@@ -66,3 +66,8 @@ services:
       image: prom/node-exporter:latest
       ports:
         - '9100:9100'
+  
+  grafana:
+    image: grafana/grafana:latest
+    ports:
+      - "3000:3000"
