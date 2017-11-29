@@ -3,19 +3,19 @@ import os
 import shutil
 import logging
 
+from epflldap.ldap_search import get_unit_id
+
 from utils import Utils
-from settings import WP_DIRS, WP_FILES, \
-    PLUGIN_ACTION_UNINSTALL, PLUGIN_ACTION_INSTALL, \
-    PLUGINS_CONFIG_GENERIC_FOLDER, PLUGINS_CONFIG_SPECIFIC_FOLDER, \
-    WP_PLUGIN_CONFIG_CLASS_BY_NAME, WP_DEFAULT_PLUGIN_CONFIG
+import settings
 
 from django.core.validators import URLValidator
-from veritas.validators import validate_string, validate_openshift_env, validate_integer
+from veritas.validators import validate_string, validate_openshift_env, validate_integer, validate_unit
 
 from .models import WPSite, WPUser
 from .config import WPConfig
 from .themes import WPThemeConfig
 from .plugins.models import WPPluginList
+from .plugins.config import WPMuPluginConfig
 
 
 class WPGenerator:
@@ -38,9 +38,14 @@ class WPGenerator:
 
     def __init__(self, openshift_env, wp_site_url,
                  wp_default_site_title=None,
+                 installs_locked=settings.DEFAULT_CONFIG_INSTALLS_LOCKED,
+                 updates_automatic=settings.DEFAULT_CONFIG_UPDATES_AUTOMATIC,
                  admin_password=None,
                  owner_id=None,
-                 responsible_id=None):
+                 responsible_id=None,
+                 theme=settings.DEFAULT_THEME_NAME,
+                 theme_faculty=None,
+                 unit=None):
         """
         Class constructor
 
@@ -51,6 +56,8 @@ class WPGenerator:
         admin_password -- (optional) Password to use for 'admin' account
         owner_id -- (optional) ID (sciper) of website owner
         responsible_id -- (optional) ID (sciper) of website responsible
+        theme -- (optional) WordPress Theme name
+        theme_faculty -- (optional) Faculty name to use with theme (to select color)
         """
         # validate input
         validate_openshift_env(openshift_env)
@@ -61,10 +68,15 @@ class WPGenerator:
             validate_integer(owner_id)
         if responsible_id is not None:
             validate_integer(responsible_id)
+        if unit:
+            validate_unit(unit)
 
         # create WordPress site and config
         self.wp_site = WPSite(openshift_env, wp_site_url, wp_default_site_title=wp_default_site_title)
-        self.wp_config = WPConfig(self.wp_site)
+        self.wp_config = WPConfig(
+            self.wp_site,
+            installs_locked=installs_locked,
+            updates_automatic=updates_automatic)
 
         # prepare admin for exploitation/maintenance
         self.wp_admin = WPUser(self.WP_ADMIN_USER, self.WP_ADMIN_EMAIL)
@@ -73,6 +85,19 @@ class WPGenerator:
         # store scipers_id for later
         self.owner_id = owner_id
         self.responsible_id = responsible_id
+
+        # plugin configuration
+        if unit:
+            self.plugin_config_custom = {
+                'unit_name': unit,
+                'unit_id': self.get_unit_id(unit)
+            }
+        else:
+            self.plugin_config_custom = {}
+
+        # Theme configuration
+        self.theme = theme or settings.DEFAULT_THEME_NAME
+        self.theme_faculty = None if theme_faculty == '' else theme_faculty
 
         # create mysql credentials
         self.wp_db_name = Utils.generate_name(self.DB_NAME_LENGTH, prefix='wp_').lower()
@@ -113,58 +138,10 @@ class WPGenerator:
         logging.info("WPGenerator.list_plugins(): Add parameter for 'batch file' (YAML)")
         # Batch config file (config-lot1.yml) needs to be replaced by something clean as soon as we have "batch"
         # information in the source of trousse !
-        plugin_list = WPPluginList(PLUGINS_CONFIG_GENERIC_FOLDER, 'config-lot1.yml', PLUGINS_CONFIG_SPECIFIC_FOLDER)
+        plugin_list = WPPluginList(settings.PLUGINS_CONFIG_GENERIC_FOLDER, 'config-lot1.yml',
+                                   settings.PLUGINS_CONFIG_SPECIFIC_FOLDER)
 
         return plugin_list.list_plugins(self.wp_site.name, with_config, for_plugin)
-
-    def generate_plugins(self):
-        """
-        Get plugin list for WP site, install them, activate them if needed, configure them
-
-        """
-        logging.info("WPGenerator.generate_plugins(): Add parameter for 'batch file' (YAML)")
-        # Batch config file (config-lot1.yml) needs to be replaced by something clean as soon as we have "batch"
-        # information in the source of trousse !
-        plugin_list = WPPluginList(PLUGINS_CONFIG_GENERIC_FOLDER, 'config-lot1.yml', PLUGINS_CONFIG_SPECIFIC_FOLDER)
-
-        # Looping through plugins to install
-        for plugin_name, config_dict in plugin_list.plugins(self.wp_site.name).items():
-
-            # Fectch proper PluginConfig class and create instance
-            plugin_class_name = WP_PLUGIN_CONFIG_CLASS_BY_NAME.get(
-                plugin_name, WP_DEFAULT_PLUGIN_CONFIG)
-            plugin_class = Utils.import_class_from_string(plugin_class_name)
-            plugin_config = plugin_class(self.wp_site, plugin_name, config_dict)
-
-            # If we have to uninstall the plugin
-            if config_dict.action == PLUGIN_ACTION_UNINSTALL:
-                logging.info("%s - Plugins - %s: Uninstalling...", repr(self), plugin_name)
-                if plugin_config.is_installed:
-                    plugin_config.uninstall()
-                    logging.info("%s - Plugins - %s: Uninstalled!", repr(self), plugin_name)
-                else:
-                    logging.info("%s - Plugins - %s: Not installed!", repr(self), plugin_name)
-
-            else:  # We have to install the plugin
-                # We may have to install or do nothing (if we only want to deactivate plugin)
-                if config_dict.action == PLUGIN_ACTION_INSTALL:
-                    logging.info("%s - Plugins - %s: Installing...", repr(self), plugin_name)
-                    if not plugin_config.is_installed:
-                        plugin_config.install()
-                        logging.info("%s - Plugins - %s: Installed!", repr(self), plugin_name)
-                    else:
-                        logging.info("%s - Plugins - %s: Already installed!", repr(self), plugin_name)
-
-                logging.info("%s - Plugins - %s: Setting state...", repr(self), plugin_name)
-                plugin_config.set_state()
-
-                if plugin_config.is_activated:
-                    logging.info("%s - Plugins - %s: Activated!", repr(self), plugin_name)
-                else:
-                    logging.info("%s - Plugins - %s: Deactivated!", repr(self), plugin_name)
-
-                # Configure plugin
-                plugin_config.configure()
 
     def generate(self):
         """
@@ -187,13 +164,24 @@ class WPGenerator:
             logging.error("%s - could not install WP", repr(self))
             return False
 
-        # install and configure theme (default is 'epfl')
+        # install and configure theme (default is settings.DEFAULT_THEME_NAME)
+        logging.info("%s - Installing all themes...", repr(self))
+        WPThemeConfig.install_all(self.wp_site)
         logging.info("%s - Activating theme...", repr(self))
-        theme = WPThemeConfig(self.wp_site)
-        theme.install()
+        theme = WPThemeConfig(self.wp_site, self.theme, self.theme_faculty)
         if not theme.activate():
             logging.error("%s - could not activate theme", repr(self))
             return False
+
+        # install, activate and config mu-plugins
+        # must be done before plugins if automatic updates are disabled
+        logging.info("%s - Installing mu-plugins...", repr(self))
+        self.generate_mu_plugins()
+
+        # Delete all widgets, inactive themes
+        self.delete_widgets()
+        self.delete_inactive_themes()
+        self.delete_demo_posts()
 
         # install, activate and config plugins
         logging.info("%s - Installing plugins...", repr(self))
@@ -262,8 +250,59 @@ class WPGenerator:
             logging.error("%s - could not setup WP site", repr(self))
             return False
 
+        # Configure permalinks
+        command = "rewrite structure '/%postname%/' --hard"
+        if not self.run_wp_cli(command):
+            logging.error("%s - could not configure permalinks", repr(self))
+            return False
+
         # flag success by returning True
         return True
+
+    def delete_widgets(self, sidebar="homepage-widgets"):
+        """
+        Delete all widgets from the given sidebar.
+
+        There are 2 sidebars :
+        - One sidebar for the homepage. In this case sidebar parameter is "homepage-widgets".
+        - Another sidebar for all anothers pages. In this case sidebar parameter is "page-widgets".
+        """
+        cmd = "widget list {} --fields=id --format=csv".format(sidebar)
+        # Result is sliced to remove 1st element which is name of field (id).
+        # Because WPCLI command can take several fields, the name is displayed in the result.
+        widgets_id_list = self.run_wp_cli(cmd).split("\n")[1:]
+        for widget_id in widgets_id_list:
+            cmd = "widget delete " + widget_id
+            self.run_wp_cli(cmd)
+        logging.info("All widgets deleted")
+
+    def get_unit_id(self, unit_name):
+        """
+        Get unit id via LDAP Search
+        """
+        return get_unit_id(unit_name)
+
+    def delete_inactive_themes(self):
+        """
+        Delete all inactive themes
+        """
+        cmd = "theme list --fields=name --status=inactive --format=csv"
+        themes_name_list = self.run_wp_cli(cmd).split("\n")[1:]
+        for theme_name in themes_name_list:
+            cmd = "theme delete {}".format(theme_name)
+            self.run_wp_cli(cmd)
+        logging.info("All inactive themes deleted")
+
+    def delete_demo_posts(self):
+        """
+        Delete 'welcome blog' and 'sample page'
+        """
+        cmd = "post list --post_type=page,post --field=ID --format=csv"
+        posts_list = self.run_wp_cli(cmd).split("\n")
+        for post in posts_list:
+            cmd = "post delete {}".format(post)
+            self.run_wp_cli(cmd)
+        logging.info("All demo posts deleted")
 
     def add_webmasters(self):
         """
@@ -276,6 +315,7 @@ class WPGenerator:
             if owner is not None:
                 logging.info("%s - added owner %s", repr(self), owner.username)
             else:
+                logging.warning("%s - could not add owner %s", repr(self), owner.username)
                 success = False
 
         if self.responsible_id is not None and self.responsible_id != self.owner_id:
@@ -283,10 +323,73 @@ class WPGenerator:
             if responsible is not None:
                 logging.info("%s - added responsible %s", repr(self), responsible.username)
             else:
+                logging.warning("%s - could not add responsible %s", repr(self), responsible.username)
                 success = False
 
         # flag a success if at least one webmaster has been created
         return success
+
+    def generate_mu_plugins(self):
+        WPMuPluginConfig(self.wp_site, "epfl-functions.php").install()
+        WPMuPluginConfig(self.wp_site, "EPFL-SC-infoscience.php").install()
+        WPMuPluginConfig(self.wp_site, "EPFL_custom_editor_menu.php").install()
+
+        if self.wp_config.installs_locked:
+            WPMuPluginConfig(self.wp_site, "EPFL_installs_locked.php").install()
+
+        if self.wp_config.updates_automatic:
+            WPMuPluginConfig(self.wp_site, "EPFL_enable_updates_automatic.php").install()
+        else:
+            WPMuPluginConfig(self.wp_site, "EPFL_disable_updates_automatic.php").install()
+
+    def generate_plugins(self):
+        """
+        Get plugin list for WP site, install them, activate them if needed, configure them
+        """
+        logging.info("WPGenerator.generate_plugins(): Add parameter for 'batch file' (YAML)")
+        # Batch config file (config-lot1.yml) needs to be replaced by something clean as soon as we have "batch"
+        # information in the source of trousse !
+        plugin_list = WPPluginList(settings.PLUGINS_CONFIG_GENERIC_FOLDER, 'config-lot1.yml',
+                                   settings.PLUGINS_CONFIG_SPECIFIC_FOLDER)
+
+        # Looping through plugins to install
+        for plugin_name, config_dict in plugin_list.plugins(self.wp_site.name).items():
+
+            # Fectch proper PluginConfig class and create instance
+            plugin_class_name = settings.WP_PLUGIN_CONFIG_CLASS_BY_NAME.get(
+                plugin_name, settings.WP_DEFAULT_PLUGIN_CONFIG)
+            plugin_class = Utils.import_class_from_string(plugin_class_name)
+            plugin_config = plugin_class(self.wp_site, plugin_name, config_dict)
+
+            # If we have to uninstall the plugin
+            if config_dict.action == settings.PLUGIN_ACTION_UNINSTALL:
+                logging.info("%s - Plugins - %s: Uninstalling...", repr(self), plugin_name)
+                if plugin_config.is_installed:
+                    plugin_config.uninstall()
+                    logging.info("%s - Plugins - %s: Uninstalled!", repr(self), plugin_name)
+                else:
+                    logging.info("%s - Plugins - %s: Not installed!", repr(self), plugin_name)
+
+            else:  # We have to install the plugin
+                # We may have to install or do nothing (if we only want to deactivate plugin)
+                if config_dict.action == settings.PLUGIN_ACTION_INSTALL:
+                    logging.info("%s - Plugins - %s: Installing...", repr(self), plugin_name)
+                    if not plugin_config.is_installed:
+                        plugin_config.install()
+                        logging.info("%s - Plugins - %s: Installed!", repr(self), plugin_name)
+                    else:
+                        logging.info("%s - Plugins - %s: Already installed!", repr(self), plugin_name)
+
+                logging.info("%s - Plugins - %s: Setting state...", repr(self), plugin_name)
+                plugin_config.set_state()
+
+                if plugin_config.is_activated:
+                    logging.info("%s - Plugins - %s: Activated!", repr(self), plugin_name)
+                else:
+                    logging.info("%s - Plugins - %s: Deactivated!", repr(self), plugin_name)
+
+                # Configure plugin
+                plugin_config.configure(**self.plugin_config_custom)
 
     def clean(self):
         """
@@ -311,13 +414,13 @@ class WPGenerator:
 
         # clean directories before files
         logging.info("%s - removing files", repr(self))
-        for dir_path in WP_DIRS:
+        for dir_path in settings.WP_DIRS:
             path = os.path.join(self.wp_site.path, dir_path)
             if os.path.exists(path):
                 shutil.rmtree(path)
 
         # clean files
-        for file_path in WP_FILES:
+        for file_path in settings.WP_FILES:
             path = os.path.join(self.wp_site.path, file_path)
             if os.path.exists(path):
                 os.remove(path)
@@ -336,3 +439,10 @@ class MockedWPGenerator(WPGenerator):
         owner = self.wp_config.add_wp_user("owner", "owner@epfl.ch")
         responsible = self.wp_config.add_wp_user("responsible", "responsible@epfl.ch")
         return (owner, responsible)
+
+    def get_unit_id(self):
+        """
+        Return a fake unit id without querying LDAP
+        """
+        unit_id = 42
+        return unit_id

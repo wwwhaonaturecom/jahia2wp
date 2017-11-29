@@ -5,6 +5,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     apache2 \
     ca-certificates \
     libapache2-mod-php7.0 \
+    libapache2-mod-security2 \
+    modsecurity-crs \
     php7.0 \
     php7.0-gd \
     php7.0-curl \
@@ -15,9 +17,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     apt-get -y autoremove && \
     apt-get clean
 
-COPY server.key /etc/apache2/ssl/
-COPY server.cert /etc/apache2/ssl/
 COPY apache2.conf /etc/apache2/
+COPY restrict-wp-admin.conf /etc/apache2/conf-enabled/
+COPY modsecurity.conf /etc/modsecurity/
 COPY docker-entrypoint.sh /
 RUN chmod a+x /docker-entrypoint.sh
 

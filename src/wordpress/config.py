@@ -2,7 +2,8 @@ import os
 import logging
 import collections
 
-from settings import ENV_DIRS, WP_DIRS, WP_CONFIG_KEYS
+import settings
+
 from utils import Utils
 
 from .models import WPException, WPUser, WPSite
@@ -17,16 +18,24 @@ class WPConfig:
         - adding WP users, either from name+email or sciperID
     """
 
-    def __init__(self, wp_site):
+    def __init__(self, wp_site,
+                 installs_locked=settings.DEFAULT_CONFIG_INSTALLS_LOCKED,
+                 updates_automatic=settings.DEFAULT_CONFIG_UPDATES_AUTOMATIC):
         """
         Class constructor
 
         Argument keywords:
         wp_site -- Instance of WPSite class
+        installs_locked -- from source of trust, wether the admin (Wordpress Role) can install new theme/plugin or not
+        updates_automatic -- from source of trust, wether automatic updates are active or not
         """
         self.wp_site = wp_site
         self._config_infos = None
         self._user_infos = None
+
+        # set additionnal options
+        self.installs_locked = installs_locked
+        self.updates_automatic = updates_automatic
 
     def __repr__(self):
         installed_string = '[ok]' if self.is_installed else '[ko]'
@@ -43,7 +52,7 @@ class WPConfig:
         """
         # helper function to filter out directories which are part or WP install
         def keep_wp_sites(dir_name):
-            return dir_name not in WP_DIRS + ENV_DIRS
+            return dir_name not in settings.WP_DIRS + settings.ENV_DIRS
 
         # helper class to wrap results
         WPResult = collections.namedtuple(
@@ -143,8 +152,8 @@ class WPConfig:
         field -- (optional) configuration field for which we want the value
         """
         # validate input
-        if field is not None and field not in WP_CONFIG_KEYS:
-            raise ValueError("Field '{}' should be in {}".format(field, WP_CONFIG_KEYS))
+        if field is not None and field not in settings.WP_CONFIG_KEYS:
+            raise ValueError("Field '{}' should be in {}".format(field, settings.WP_CONFIG_KEYS))
 
         # lazy initialisation
         if self._config_infos is None:
@@ -286,5 +295,6 @@ class WPConfig:
         if not user.password:
             user.set_password()
         cmd = "user create {0.username} {0.email} --user_pass=\"{0.password}\" --role={0.role}".format(user)
-        self.run_wp_cli(cmd)
+        if self.run_wp_cli(cmd) is False:
+            logging.error("%s - wp user create failed. More details in the logs above", repr(self.wp_site))
         return user

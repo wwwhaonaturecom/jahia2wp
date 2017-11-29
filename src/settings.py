@@ -3,19 +3,18 @@ import os
 
 from utils import Utils
 
-VERSION = "0.2.14"
+VERSION = "0.2.15"
+SRC_DIR_PATH = os.path.dirname(os.path.realpath(__file__))
+OPENSHIFT_ENV = Utils.get_mandatory_env("WP_ENV")
 
 # This Docker IP address is used for automatic testing.
 # Docker may change it in the future, which will cause some tests to fail.
-DOCKER_IP = "172.17.0.1"
+DOCKER_IP = Utils.get_optional_env("DOCKER_IP", "172.17.0.1")
+TEST_SITE = 'unittest'
 
-SRC_DIR_PATH = os.path.dirname(os.path.realpath(__file__))
-DATA_PATH = os.path.abspath(
-    os.path.sep.join([os.path.dirname(__file__), '..', 'data'])
-)
-WP_PATH = os.path.join(DATA_PATH, 'wp')
-BACKUP_PATH = Utils.get_optional_env(
-    "BACKUP_PATH", os.path.join(DATA_PATH, 'backups'))
+DATA_PATH = os.path.abspath(os.path.sep.join([SRC_DIR_PATH, '..', 'data']))
+BACKUP_PATH = Utils.get_optional_env("BACKUP_PATH", os.path.join(DATA_PATH, 'backups'))
+WP_FILES_PATH = os.path.join(DATA_PATH, 'wp')
 
 ENV_DIRS = ['logs', 'venv', 'jahia2wp']
 
@@ -62,21 +61,6 @@ WP_CONFIG_KEYS = [
     'NONCE_SALT',
 ]
 
-OPENSHIFT_ENVS = [
-    # for testing purpose
-    "your-env",
-    "test",
-    # real ones
-    "dev",
-    "int",
-    "ebreton",
-    "ejaep",
-    "lvenries",
-    "lboatto",
-    "gcharmier",
-    "lchaboudez"
-]
-
 SUPPORTED_LANGUAGES = [
     "fr",
     "en",
@@ -86,6 +70,11 @@ SUPPORTED_LANGUAGES = [
     "gr",
     "it"
 ]
+
+DEFAULT_CONFIG_INSTALLS_LOCKED = True
+DEFAULT_CONFIG_UPDATES_AUTOMATIC = True
+
+DEFAULT_THEME_NAME = 'epfl-master'
 
 PLUGINS_CONFIG_BASE_PATH = Utils.get_optional_env(
     "PLUGINS_CONFIG_BASE_PATH", os.path.sep.join([SRC_DIR_PATH, '..', 'data', 'plugins']))
@@ -122,8 +111,8 @@ WP_PLUGIN_TABLES_RELATIONS = {
 WP_DEFAULT_PLUGIN_CONFIG = "wordpress.plugins.config.WPPluginConfig"
 WP_PLUGIN_CONFIG_CLASS_BY_NAME = {
     "polylang": "wordpress.plugins.polylang.WPPolylangConfig",
+    "accred": "wordpress.plugins.accred.WPAccredConfig",
 }
-
 
 JAHIA_USER = Utils.get_optional_env("JAHIA_USER", "admin")
 JAHIA_HOST = Utils.get_optional_env("JAHIA_HOST", "localhost")

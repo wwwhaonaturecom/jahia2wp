@@ -11,9 +11,11 @@ plugins:
     config: !include akismet/config-plugin.yml
   - name: hello
     config: !include hello/config-plugin.yml
-  - name: miniorange-saml-20-single-sign-on
-    config: !include miniorange-saml-20-single-sign-on/v1/config-plugin.yml
   - name: polylang
     config: !include polylang/v1/config-plugin.yml
   - name: mainwp-child
-    config: !include mainwp-child/v1/config-plugin.yml
+    config: !include mainwp-child/v1/config-plugin.yml 
+  - name: tequila
+    config: !include tequila/v1/config-plugin.yml
+  - name: accred
+    config: !include accred/v1/config-plugin.yml

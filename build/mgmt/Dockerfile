@@ -1,5 +1,4 @@
 FROM debian:stretch
-MAINTAINER Christophe Burki, christophe.burki@camptocamp.com
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     bash-completion \
@@ -33,8 +32,8 @@ RUN mkdir /var/run/sshd && \
     sed -ri 's/#?PermitRootLogin\s+.*/PermitRootLogin yes/g' /etc/ssh/sshd_config && \
     mkdir /tmp/openshift && \
     cd /tmp/openshift && \
-    curl -L -O https://github.com/openshift/origin/releases/download/v3.6.0/openshift-origin-client-tools-v3.6.0-c4dd4cf-linux-64bit.tar.gz && \
-    tar -xf openshift-origin-client-tools-v3.6.0-c4dd4cf-linux-64bit.tar.gz  && \
+    curl -L -O https://github.com/openshift/origin/releases/download/v3.6.1/openshift-origin-client-tools-v3.6.1-008f2d5-linux-64bit.tar.gz && \
+    tar -xf openshift-origin-client-tools-v3.6.1-008f2d5-linux-64bit.tar.gz && \
     mv */oc /usr/local/bin && \
     cd / && \
     rm -rf /tmp/openshift && \
@@ -42,6 +41,7 @@ RUN mkdir /var/run/sshd && \
 
 COPY ./bash_profile /var/www/.bash_profile
 COPY ./docker-entrypoint.sh /
+COPY ./config.yml /var/www/.wp-cli/config.yml
 
 RUN sed -ir 's#www-data.*:/usr/sbin/nologin#www-data:x:33:33:www-data:/var/www:/bin/bash#' /etc/passwd
 RUN mkdir -p /var/www/.ssh

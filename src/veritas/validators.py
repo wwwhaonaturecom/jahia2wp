@@ -17,12 +17,14 @@
 
     They are functions (or callable objects) that raise a ValidationError on failure
 """
-from settings import OPENSHIFT_ENVS, SUPPORTED_LANGUAGES
+import os
 
-
-from django.core.validators import RegexValidator
 from django.conf import settings as dj_settings
+from django.core.exceptions import ValidationError
+from django.core.validators import RegexValidator
+from epflldap.ldap_search import get_unit_id
 
+from settings import SUPPORTED_LANGUAGES
 
 dj_settings.configure(USE_I18N=False)
 
@@ -40,6 +42,10 @@ class MultipleChoicesValidator(RegexValidator):
         base_regex = "({})".format("|".join(choices))
         regex = "^{0}(,{0})*$".format(base_regex)
         super(MultipleChoicesValidator, self).__init__(regex=regex, **kwargs)
+
+
+# TODO: Delete all return below
+# validate functions should not return anything
 
 
 def validate_integer(text):
@@ -63,7 +69,8 @@ def validate_db_name(name):
 
 
 def validate_openshift_env(text):
-    return ChoiceValidator(OPENSHIFT_ENVS)(text)
+    if not os.path.isdir('/srv/{}'.format(text)):
+        raise ValidationError("Openshift environment not valid")
 
 
 def validate_site_type(text):
@@ -71,7 +78,11 @@ def validate_site_type(text):
 
 
 def validate_theme(text):
-    return RegexValidator(regex="^EPFL$")(text)
+    return RegexValidator(regex="^[a-zA-Z0-9_-]+$")(text)
+
+
+def validate_theme_faculty(text):
+    return RegexValidator(regex="^(|cdh|cdm|enac|ic|sb|sti|sv)$")(text)
 
 
 def validate_languages(text):
@@ -80,3 +91,15 @@ def validate_languages(text):
 
 def validate_backup_type(text):
     return ChoiceValidator(choices=['inc', 'full'])(text)
+
+
+def validate_unit(unit_name):
+    # FIXME: epfl-ldap should return a LDAP Exception
+    try:
+        get_unit_id(unit_name)
+    except Exception:
+        raise ValidationError("The unit name {} doesn't exist".format(unit_name))
+
+
+def mock_validate_unit(unit_name):
+    return 42

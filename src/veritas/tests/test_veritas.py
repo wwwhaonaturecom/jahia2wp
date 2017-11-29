@@ -1,7 +1,7 @@
 """ All rights reserved. ECOLE POLYTECHNIQUE FEDERALE DE LAUSANNE, Switzerland, VPSI, 2017 """
 import os
 
-from veritas.veritas import VeritasValidor
+from veritas.veritas import VeritasValidor, MOCK_JAHIA2WP_COLUMNS
 
 CURRENT_DIR = os.path.dirname(__file__)
 TEST_FILE = 'test_veritas_data.csv'
@@ -10,12 +10,13 @@ VALID_LINE = {
         'comment': 'je mets ici',
         'installs_locked': 'yes',
         'langs': 'fr,en',
-        'openshift_env': 'dev',
+        'openshift_env': 'test',
         'owner_id': '123456',
         'responsible_id': '123456',
         'site_type': 'WordPress',
         'status': 'asked',
-        'theme': 'EPFL',
+        'theme': 'epfl',
+        'theme_faculty': '',
         'unit': 'VPR',
         'updates_automatic': 'no',
         'wp_default_site_title': 'Recherche',
@@ -24,7 +25,12 @@ VALID_LINE = {
 
 def test_validate():
     filename = os.path.join(CURRENT_DIR, TEST_FILE)
-    validator = VeritasValidor(filename)
+
+    validator = VeritasValidor(filename, columns=MOCK_JAHIA2WP_COLUMNS)
+
+    # make sure test environment exists
+    if not os.path.exists("/srv/test"):
+        os.mkdir("/srv/test")
 
     validator.validate()
 
@@ -45,11 +51,11 @@ def test_validate():
 def test_get_valid_rows():
     filename = os.path.join(CURRENT_DIR, TEST_FILE)
     valid_lines = ((0, VALID_LINE),)
-    validator = VeritasValidor(filename)
+    validator = VeritasValidor(filename, columns=MOCK_JAHIA2WP_COLUMNS)
     assert validator.get_valid_rows() == valid_lines
 
 
 def test_filter_method():
     filename = os.path.join(CURRENT_DIR, TEST_FILE)
     valid_lines = ((0, VALID_LINE),)
-    assert valid_lines == VeritasValidor.filter_valid_rows(filename)
+    assert valid_lines == VeritasValidor.filter_valid_rows(filename, columns=MOCK_JAHIA2WP_COLUMNS)

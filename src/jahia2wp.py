@@ -8,8 +8,11 @@ Usage:
     [--force]
   jahia2wp.py check                 <wp_env> <wp_url>               [--debug | --quiet]
   jahia2wp.py generate              <wp_env> <wp_url>               [--debug | --quiet]
-    [--wp-title=<WP_TITLE> --admin-password=<ADMIN_PASSWORD>]
-    [--owner=<OWNER_ID> --responsible=<RESPONSIBLE_ID>]
+    [--wp-title=<WP_TITLE> --admin-password=<PASSWORD>]
+    [--owner-id=<SCIPER> --responsible-id=<SCIPER>]
+    [--theme=<THEME> --theme_faculty=<THEME-FACULTY>]
+    [--installs-locked=<INSTALLS_LOCKED> --automatic-updates=<UPDATES_AUTOMATIC>]
+    [--unit=<UNIT>]
   jahia2wp.py backup                <wp_env> <wp_url>               [--debug | --quiet]
     [--backup-type=<BACKUP_TYPE>]
   jahia2wp.py version               <wp_env> <wp_url>               [--debug | --quiet]
@@ -17,8 +20,8 @@ Usage:
   jahia2wp.py check-one             <wp_env> <wp_url>               [--debug | --quiet] [DEPRECATED]
   jahia2wp.py clean-one             <wp_env> <wp_url>               [--debug | --quiet] [DEPRECATED]
   jahia2wp.py generate-one          <wp_env> <wp_url>               [--debug | --quiet] [DEPRECATED]
-    [--wp-title=<WP_TITLE> --admin-password=<ADMIN_PASSWORD>]
-    [--owner=<OWNER_ID> --responsible=<RESPONSIBLE_ID>]
+    [--wp-title=<WP_TITLE> --admin-password=<PASSWORD>]
+    [--owner-id=<SCIPER> --responsible-id=<SCIPER>]
   jahia2wp.py generate-many         <csv_file>                      [--debug | --quiet]
   jahia2wp.py backup-many           <csv_file>                      [--debug | --quiet]
     [--backup-type=<BACKUP_TYPE>]
@@ -31,8 +34,8 @@ Usage:
 Options:
   -h --help                 Show this screen.
   -v --version              Show version.
-  --debug                   Set log level to DEBUG (default is INFO)
-  --quiet                   Set log level to WARNING (default is INFO)
+  --debug                   Set log level to DEBUG [default: INFO]
+  --quiet                   Set log level to WARNING [default: INFO]
 """
 import logging
 import getpass
@@ -44,7 +47,7 @@ from veritas.veritas import VeritasValidor
 from wordpress import WPSite, WPConfig, WPGenerator, WPBackup, WPPluginConfigExtractor
 from crawler import JahiaCrawler
 
-from settings import VERSION
+from settings import VERSION, DEFAULT_THEME_NAME
 from utils import Utils, deprecated
 
 
@@ -104,21 +107,42 @@ def clean(wp_env, wp_url, force=False, **kwargs):
 
 @dispatch.on('generate-one')
 @deprecated("Use 'generate' instead")
-def generate_one(wp_env, wp_url, wp_title=None, admin_password=None, owner_id=None, responsible_id=None, **kwargs):
+def generate_one(wp_env, wp_url, wp_title=None,
+                 admin_password=None, owner_id=None, responsible_id=None, **kwargs):
     return generate(
         wp_env, wp_url, wp_title=wp_title, admin_password=admin_password,
         owner_id=owner_id, responsible_id=responsible_id, **kwargs)
 
 
 @dispatch.on('generate')
-def generate(wp_env, wp_url, wp_title=None, admin_password=None, owner_id=None, responsible_id=None, **kwargs):
+def generate(wp_env, wp_url,
+             wp_title=None, admin_password=None,
+             owner_id=None, responsible_id=None,
+             theme=DEFAULT_THEME_NAME, theme_faculty=None,
+             installs_locked=None, updates_automatic=None,
+             unit=None, **kwargs):
+
+    # if nothing is specified we want a locked install
+    if installs_locked is None:
+        installs_locked = True
+
+    # if nothing is specified we want automatic updates
+    if updates_automatic is None:
+        updates_automatic = True
+
     wp_generator = WPGenerator(
         wp_env,
         wp_url,
         wp_default_site_title=wp_title,
         admin_password=admin_password,
         owner_id=owner_id,
-        responsible_id=responsible_id)
+        responsible_id=responsible_id,
+        theme=theme,
+        theme_faculty=theme_faculty,
+        installs_locked=installs_locked,
+        updates_automatic=updates_automatic,
+        unit=unit,
+    )
     if not wp_generator.generate():
         raise SystemExit("Generation failed. More info above")
 
@@ -165,6 +189,11 @@ def generate_many(csv_file, **kwargs):
             wp_default_site_title=row["wp_default_site_title"],
             owner_id=row["owner_id"],
             responsible_id=row["responsible_id"],
+            updates_automatic=row["updates_automatic"],
+            installs_locked=row["installs_locked"],
+            theme=row["theme"],
+            theme_faculty=row["theme_faculty"],
+            unit=row["unit"],
         ).generate()
 
 
