@@ -9,8 +9,8 @@ from utils import Utils
 import settings
 
 from django.core.validators import URLValidator
-from veritas.validators import validate_string, validate_openshift_env, validate_integer, validate_unit
-
+from veritas.validators import validate_string, validate_openshift_env, validate_unit, \
+    validate_theme_faculty, validate_theme
 from .models import WPSite, WPUser
 from .config import WPConfig
 from .themes import WPThemeConfig
@@ -38,14 +38,12 @@ class WPGenerator:
 
     def __init__(self, openshift_env, wp_site_url,
                  wp_default_site_title=None,
+                 unit_name=None,
                  installs_locked=settings.DEFAULT_CONFIG_INSTALLS_LOCKED,
                  updates_automatic=settings.DEFAULT_CONFIG_UPDATES_AUTOMATIC,
                  admin_password=None,
-                 owner_id=None,
-                 responsible_id=None,
                  theme=settings.DEFAULT_THEME_NAME,
-                 theme_faculty=None,
-                 unit=None):
+                 theme_faculty=None):
         """
         Class constructor
 
@@ -54,25 +52,24 @@ class WPGenerator:
         wp_site_url -- Website URL
         wp_default_site_title -- (optional) website title
         admin_password -- (optional) Password to use for 'admin' account
-        owner_id -- (optional) ID (sciper) of website owner
-        responsible_id -- (optional) ID (sciper) of website responsible
         theme -- (optional) WordPress Theme name
         theme_faculty -- (optional) Faculty name to use with theme (to select color)
         """
         # validate input
+        self.validate_mockable_args(wp_site_url, unit_name)
         validate_openshift_env(openshift_env)
-        URLValidator()(wp_site_url)
         if wp_default_site_title is not None:
             validate_string(wp_default_site_title)
-        if owner_id is not None:
-            validate_integer(owner_id)
-        if responsible_id is not None:
-            validate_integer(responsible_id)
-        if unit:
-            validate_unit(unit)
+        if theme is not None:
+            validate_theme(theme)
+        if theme_faculty is not None:
+            validate_theme_faculty(theme_faculty)
 
         # create WordPress site and config
-        self.wp_site = WPSite(openshift_env, wp_site_url, wp_default_site_title=wp_default_site_title)
+        self.wp_site = WPSite(
+            openshift_env,
+            wp_site_url,
+            wp_default_site_title=wp_default_site_title)
         self.wp_config = WPConfig(
             self.wp_site,
             installs_locked=installs_locked,
@@ -82,18 +79,11 @@ class WPGenerator:
         self.wp_admin = WPUser(self.WP_ADMIN_USER, self.WP_ADMIN_EMAIL)
         self.wp_admin.set_password(password=admin_password)
 
-        # store scipers_id for later
-        self.owner_id = owner_id
-        self.responsible_id = responsible_id
-
         # plugin configuration
-        if unit:
-            self.plugin_config_custom = {
-                'unit_name': unit,
-                'unit_id': self.get_unit_id(unit)
-            }
-        else:
-            self.plugin_config_custom = {}
+        self.plugin_config_custom = {
+            'unit_name': unit_name,
+            'unit_id': self.get_the_unit_id(unit_name)
+        }
 
         # Theme configuration
         self.theme = theme or settings.DEFAULT_THEME_NAME
@@ -187,12 +177,6 @@ class WPGenerator:
         logging.info("%s - Installing plugins...", repr(self))
         self.generate_plugins()
 
-        # add 2 given webmasters
-        logging.info("%s - Creating webmaster accounts...", repr(self))
-        if not self.add_webmasters():
-            logging.error("%s - could not add webmasters", repr(self))
-            return False
-
         # flag success
         return True
 
@@ -256,6 +240,10 @@ class WPGenerator:
             logging.error("%s - could not configure permalinks", repr(self))
             return False
 
+        # Add french for the admin interface
+        command = "language core install fr_FR"
+        self.run_wp_cli(command)
+
         # flag success by returning True
         return True
 
@@ -276,11 +264,18 @@ class WPGenerator:
             self.run_wp_cli(cmd)
         logging.info("All widgets deleted")
 
-    def get_unit_id(self, unit_name):
+    def validate_mockable_args(self, wp_site_url, unit_name):
+        """ Call validators in an independant function to allow mocking them """
+        URLValidator()(wp_site_url)
+        if unit_name is not None:
+            validate_unit(unit_name)
+
+    def get_the_unit_id(self, unit_name):
         """
         Get unit id via LDAP Search
         """
-        return get_unit_id(unit_name)
+        if unit_name is not None:
+            return get_unit_id(unit_name)
 
     def delete_inactive_themes(self):
         """
@@ -304,32 +299,8 @@ class WPGenerator:
             self.run_wp_cli(cmd)
         logging.info("All demo posts deleted")
 
-    def add_webmasters(self):
-        """
-        Add webmasters to WordPress install.
-        """
-        success = True
-
-        if self.owner_id is not None:
-            owner = self.wp_config.add_ldap_user(self.owner_id)
-            if owner is not None:
-                logging.info("%s - added owner %s", repr(self), owner.username)
-            else:
-                logging.warning("%s - could not add owner %s", repr(self), owner.username)
-                success = False
-
-        if self.responsible_id is not None and self.responsible_id != self.owner_id:
-            responsible = self.wp_config.add_ldap_user(self.responsible_id)
-            if responsible is not None:
-                logging.info("%s - added responsible %s", repr(self), responsible.username)
-            else:
-                logging.warning("%s - could not add responsible %s", repr(self), responsible.username)
-                success = False
-
-        # flag a success if at least one webmaster has been created
-        return success
-
     def generate_mu_plugins(self):
+        # TODO: add those plugins into the general list of plugins (with the class WPMuPluginConfig)
         WPMuPluginConfig(self.wp_site, "epfl-functions.php").install()
         WPMuPluginConfig(self.wp_site, "EPFL-SC-infoscience.php").install()
         WPMuPluginConfig(self.wp_site, "EPFL_custom_editor_menu.php").install()
@@ -355,7 +326,8 @@ class WPGenerator:
         # Looping through plugins to install
         for plugin_name, config_dict in plugin_list.plugins(self.wp_site.name).items():
 
-            # Fectch proper PluginConfig class and create instance
+            # Fetch proper PluginConfig class and create instance
+            # TODO: read class from YML
             plugin_class_name = settings.WP_PLUGIN_CONFIG_CLASS_BY_NAME.get(
                 plugin_name, settings.WP_DEFAULT_PLUGIN_CONFIG)
             plugin_class = Utils.import_class_from_string(plugin_class_name)
@@ -432,17 +404,11 @@ class MockedWPGenerator(WPGenerator):
     calling LDAP.
     """
 
-    def add_webmasters(self):
-        """
-        Add fake webmasters without querying LDAP
-        """
-        owner = self.wp_config.add_wp_user("owner", "owner@epfl.ch")
-        responsible = self.wp_config.add_wp_user("responsible", "responsible@epfl.ch")
-        return (owner, responsible)
+    def validate_mockable_args(self, wp_site_url, unit_name):
+        pass
 
-    def get_unit_id(self):
+    def get_the_unit_id(self, unit_name):
         """
         Return a fake unit id without querying LDAP
         """
-        unit_id = 42
-        return unit_id
+        return 42
