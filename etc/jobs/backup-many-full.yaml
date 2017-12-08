@@ -5,11 +5,14 @@ metadata:
 spec:
   concurrencyPolicy: Forbid
   # every day at midnight 
-  schedule: '* 0 * * *'
+  schedule: '0 0 * * *'
   suspend: false
   jobTemplate:
      metadata:
        creationTimestamp: null
+       labels:
+         parent: backup-many-full
+     successfulJobsHistoryLimit: 3
      spec:
        template:
          metadata:
